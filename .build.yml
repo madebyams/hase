@@ -38,12 +38,12 @@ tasks:
   - unit-tests: |
       cd "$HOME/hase"
       mvn -f backend/pom.xml clean test
-      yarnpkg --cwd frontend install --frozen-lockfile
-      yarnpkg --cwd frontend run test:unit -- --run
+      npm --prefix frontend ci
+      npm --prefix frontend run test:unit -- --run
   - end-to-end-tests: |
       cd "$HOME/hase"
-      yarnpkg --cwd frontend install --frozen-lockfile
-      yarnpkg --cwd frontend playwright install chromium
+      npm --prefix frontend ci
+      npx --prefix frontend playwright install chromium
       mvn -f backend/pom.xml clean install -q
       JAR_PATH="$(find backend/target -name 'hasev2-*.jar' | head -1)"
       java -jar "$JAR_PATH" > backend-e2e.log 2>&1 &
@@ -55,8 +55,8 @@ tasks:
         if [ "$retry" -ge 12 ]; then cat backend-e2e.log; exit 1; fi
         sleep 5
       done
-      yarnpkg --cwd frontend run build
-      yarnpkg --cwd frontend run test:e2e
+      npm --prefix frontend run build
+      npm --prefix frontend run test:e2e
       mkdir -p frontend/test-results
       tar -czf e2e-test-results.tar.gz -C frontend test-results
 artifacts:
