@@ -9,6 +9,7 @@ packages:
   - curl
   - libnss3
   - xvfb
+  - xauth
   - libatk1.0-0
   - libatk-bridge2.0-0
   - libcups2
