@@ -1,0 +1,111 @@
+name: CI
+
+# Converted from the former builds.sr.ht manifest (.build.yml).
+# Each sourcehut task is one step; $HOME is the workspace, as on sourcehut.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        shell: bash -xe {0}
+    steps:
+      - name: Install packages
+        run: |
+          apt-get update
+          apt-get install -y git ca-certificates \
+            openjdk-21-jdk \
+            maven \
+            nodejs \
+            npm \
+            yarnpkg \
+            openssl \
+            curl \
+            libnss3 \
+            xvfb \
+            xauth \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libdbus-1-3 \
+            libatspi2.0-0 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgbm1 \
+            libasound2t64 \
+            libpango-1.0-0 \
+            libcairo2
+
+      - uses: actions/checkout@v4
+        with:
+          path: "hase"
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: "generate-test-keys"
+        run: |
+          export HOME="$GITHUB_WORKSPACE"
+          cd "$HOME"
+          cd "$HOME/hase"
+          mkdir -p backend/src/main/resources/certs
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+            -out backend/src/main/resources/certs/private.pem
+          openssl pkey -in backend/src/main/resources/certs/private.pem -pubout \
+            -out backend/src/main/resources/certs/public.pem
+          chmod 600 backend/src/main/resources/certs/private.pem
+          chmod 644 backend/src/main/resources/certs/public.pem
+
+      - name: "unit-tests"
+        run: |
+          export HOME="$GITHUB_WORKSPACE"
+          cd "$HOME"
+          cd "$HOME/hase"
+          mvn -f backend/pom.xml clean test
+          npm --prefix frontend ci
+          npm --prefix frontend run test:unit -- --run
+
+      - name: "end-to-end-tests"
+        run: |
+          export HOME="$GITHUB_WORKSPACE"
+          cd "$HOME"
+          cd "$HOME/hase"
+          npm --prefix frontend ci
+          npx --prefix frontend playwright install chromium
+          mvn -f backend/pom.xml clean install -q
+          JAR_PATH="$(find backend/target -name 'hasev2-*.jar' | head -1)"
+          java -jar "$JAR_PATH" > backend-e2e.log 2>&1 &
+          backend_pid=$!
+          trap 'kill "$backend_pid" 2>/dev/null || true' EXIT
+          retry=0
+          until curl -sf http://127.0.0.1:8080/health; do
+            retry=$((retry + 1))
+            if [ "$retry" -ge 12 ]; then cat backend-e2e.log; exit 1; fi
+            sleep 5
+          done
+          npm --prefix frontend run build
+          xvfb-run -a npm --prefix frontend run test:e2e -- --project=chromium
+          mkdir -p frontend/test-results
+          tar -czf e2e-test-results.tar.gz -C frontend test-results
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          if-no-files-found: warn
+          path: |
+            hase/e2e-test-results.tar.gz
